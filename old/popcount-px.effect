@@ -1,0 +1,98 @@
+// Alpha Channel Reflection Mask
+// by Millennium Cyborg
+// for use with OBS + StreamFX
+
+// Always provided by OBS
+uniform float4x4 ViewProj<
+	bool automatic = true;
+	string name = "View Projection Matrix";
+>;
+
+// Provided by Stream Effects
+uniform texture2d InputA<
+	bool automatic = true;
+>;
+
+uniform float4 ViewSize<
+	bool automatic = true;
+>;
+
+// User values
+
+uniform bool _01_Square<
+  bool automatic = false;
+	string name = "Square";
+	string description = "Shape of neighbourhood, true for square or false for circle.";
+> = false;
+
+uniform int _02_NeighbourhoodSize<
+  bool automatic = false;
+	string name = "Neighbourhood";
+	string description = "Size of neighbourhood to count";
+	string field_type = "slider";
+	int minimum = 0;
+	int maximum = 3;
+> = 3;
+
+uniform int _03_PopCountThreshold<
+  bool automatic = false;
+	string name = "Pop Count Threshold";
+	string description = "How many set px in the neighbourhood do we want to see set?";
+	string field_type = "slider";
+	int minimum = 0;
+	int maximum = 50;
+> = 3;
+/**/
+
+// ---------- Shader Code
+sampler_state def_sampler {
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+	Filter    = Linear;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in) {
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+float2 uv_to_px(float2 uv) {
+  return (uv * ViewSize.xy) - 0.5;
+}
+
+float2 px_to_uv(float2 px) {
+  return (px + 0.5) / ViewSize.xy;
+}
+
+float4 PSDefault(VertData v_in) : TARGET {
+	const float2 px = uv_to_px(v_in.uv);
+  const int half_size = _02_NeighbourhoodSize;
+  int3 counts = int3(0,0,0);
+  const float3 central_sample = InputA.Sample(def_sampler, px_to_uv(px)).rgb;
+  for (int i = -half_size; i <= half_size; ++i) {
+    for (int j = -half_size; j <= half_size; ++j) {
+      if (!_01_Square && (i*i + j*j > half_size)) {
+        continue;
+      }
+      const float3 sample = InputA.Sample(def_sampler, px_to_uv(px + float2(i,j))).rgb;
+      counts += sample > 0.5;
+    }
+  }
+  return float4((counts > _03_PopCountThreshold).rgb, 1.0);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSDefault(v_in); 
+	}
+}

@@ -1,0 +1,244 @@
+// Alpha Channel Gamma shader
+// by Millennium Cyborg
+// for use with OBS + StreamFX
+
+// Always provided by OBS
+uniform float4x4 ViewProj<
+	bool automatic = true;
+	string name = "View Projection Matrix";
+>;
+
+// Provided by Stream Effects
+uniform texture2d InputA<
+	bool automatic = true;
+>;
+
+uniform float4 ViewSize<
+	bool automatic = true;
+>;
+
+// User parameters
+uniform float _00_Fov<
+  bool automatic = false;
+	string name = "FOV";
+	string description = "Field of view of camera in degrees";
+	string field_type = "slider";
+	float minimum = 30;
+	float maximum = 175;
+	float step = 1;
+> = 90;
+
+uniform float _01_SphereRadius<
+  bool automatic = false;
+	string name = "Sphere Radius";
+	string description = "Radius of sphere, in pixels";
+	string field_type = "slider";
+	float minimum = 16;
+	float maximum = 1920;
+	float step = 1;
+> = 480;
+
+uniform float _02_SphereDepth<
+  bool automatic = false;
+	string name = "Sphere Depth";
+	string description = "Depth of the sphere, in pixels. Distance to closest point.";
+	string field_type = "slider";
+	float minimum = 0;
+	float maximum = 1920;
+	float step = 1;
+> = 350;
+
+uniform float2 _03_SphereOffset<
+  bool automatic = false;
+	string name = "Sphere Offset";
+	string description = "Offset to apply to sphere";
+	string field_type = "slider";
+	float2 minimum = {-1000, -1000};
+	float2 maximum = {1000, 1000};
+	float2 step = {0.1, 0.1};
+> = {0.0, 85.0};
+
+uniform float2 _04_SourceScale<
+  bool automatic = false;
+	string name = "Source Scale";
+	string description = "Scale to apply to source";
+	string field_type = "slider";
+	float2 minimum = {-16, -16};
+	float2 maximum = {16, 16};
+	float2 step = {0.01, 0.01};
+> = {4.0, 6.0};
+
+uniform float2 _05_SourceOffset<
+  bool automatic = false;
+	string name = "Source Offset";
+	string description = "Offset to apply to source";
+	string field_type = "slider";
+	float2 minimum = {-1000, -1000};
+	float2 maximum = {1000, 1000};
+	float2 step = {0.1, 0.1};
+> = {0.0, -65.0};
+
+uniform float _06_SourceDepth<
+  bool automatic = false;
+	string name = "Source Depth";
+	string description = "Depth of the source in the scene, in pixels.";
+	string field_type = "slider";
+	float minimum = 0;
+	float maximum = 1920;
+	float step = 1;
+> = 1000;
+
+uniform float _07_Tint<
+  bool automatic = false;
+	string name = "Tint";
+	string description = "Amount of tint";
+	string field_type = "slider";
+	float minimum = 0.0;
+	float maximum = 1.0;
+	float step = 0.01;
+> = 0.0;
+
+// ---------- Shader Code
+sampler_state def_sampler {
+  AddressU  = Border;
+	AddressV  = Border;
+	Filter    = Linear;
+  BorderColor = 00000000;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in) {
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+// For debugging
+float3 normal_map_value(float3 n) {
+  return float3(
+    0.5 * (n.x + 1.0),
+    0.5 * (n.y + 1.0),
+    0.5 * (-n.z + 1.0));
+}
+
+float2 uv_to_px(float2 uv) {
+  return (uv * ViewSize.xy) - 0.5;
+}
+
+float2 px_to_uv(float2 px) {
+  return (px + 0.5) / ViewSize.xy;
+}
+
+// Based on https://www.scratchapixel.com/lessons/3d-basic-rendering/ray-tracing-generating-camera-rays/generating-camera-rays
+// returns t >= 0 such that ray_origin + t * ray_normal is the intersection point,
+// or -1 if there's no valid intersection
+float intersect_ray_sphere(
+  float3 ray_origin,
+  float3 ray_normal,
+  float3 sphere_origin,
+  float sphere_radius
+) {
+  // This sure takes a lot of code wow
+  
+  // geometric solution
+  const float3 L = sphere_origin - ray_origin;
+  const float tca = dot(L, ray_normal);
+  if (tca < 0) { return -1; }
+  const float d2 = dot(L, L) - tca * tca;
+  const float radius2 = sphere_radius * sphere_radius;
+  if (d2 > radius2) { return -1; }
+  float thc = sqrt(radius2 - d2);
+  float t0 = tca - thc; 
+  float t1 = tca + thc;
+
+  if (t0 > t1) { 
+    float temp = t0;
+    t0 = t1;
+    t1 = temp;
+  }
+
+  if (t0 < 0) { 
+    t0 = t1; // if t0 is negative, let's use t1 instead 
+    if (t0 < 0) { return -1; } // both t0 and t1 are negative
+  } 
+
+  return t0;
+}
+
+float4 tint_from_facing(float facing) {
+  // Could have this be customisable in future
+  const float4 red = float4(1,0,0,1);
+  const float4 green = float4(0,1,0,1);
+  const float4 blue = float4(0,0,1,1);
+  const float4 tint = lerp(
+    lerp(red, green,
+         1 - pow(facing, 2.0)), // made up number
+    blue,
+    1 - pow(facing, 0.5)); // made up number
+
+  return lerp(tint, float4(1,1,1,1), 1 - _07_Tint);
+}
+
+float4 PSDefault(VertData v_in) : TARGET {
+  const float aspect = ViewSize.x / ViewSize.y;
+  const float scale_factor = tan((_00_Fov / 2) * (3.14159 / 180));
+  
+  const float Px = (2 * v_in.uv.x - 1) * scale_factor * aspect;
+  const float Py = (1 - 2 * v_in.uv.y) * scale_factor;
+
+  // const float4 c_env = float4(0,0,0,0);
+  // Just using the source texture as fallback looks pretty good in a pinch
+  // (facing value picked out of thin air)
+  const float4 c_env = tint_from_facing(0.3) * InputA.Sample(def_sampler, v_in.uv);
+
+  const float3 camera_ray = normalize(float3(Px, Py, 1));
+
+  const float3 ray_origin = float3(0, 0, 0);
+  const float3 ray_normal = camera_ray;
+  const float3 sphere_origin = float3(_03_SphereOffset.xy, _02_SphereDepth);
+  const float sphere_radius = _01_SphereRadius;
+
+  const float t =
+    intersect_ray_sphere(ray_origin, ray_normal, sphere_origin, sphere_radius);
+
+  if (t < 0) { return c_env; }
+  
+  float3 P = ray_origin + t * ray_normal;
+  float3 N = normalize(P - sphere_origin);
+  
+  const float3 ray_out = ray_normal - (2 * dot(ray_normal, N)) * N;
+  if (ray_out.z > 0) { return c_env; }
+  
+  const float2 ray_screen_intersection = 
+    float2( (ray_out.x / ray_out.z),
+            (ray_out.y / ray_out.z) ) * (P.z + _06_SourceDepth);
+
+  const float2 source_pos =
+    (((ray_screen_intersection / _04_SourceScale + _05_SourceOffset) / ViewSize.xy) + 0.5);
+
+  if (source_pos.x < 0 || 1 < source_pos.x || source_pos.y < 0 || 1 < source_pos.y) {
+    return c_env;
+  }
+  
+  const float4 sample = InputA.Sample(def_sampler, source_pos.xy);
+  
+  const float facing = abs(dot(ray_normal, N));
+  const float4 tint = tint_from_facing(facing);
+  
+  return float4(tint * sample);
+  ///**/ return float4(1,1,1,1);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSDefault(v_in); 
+	}
+}

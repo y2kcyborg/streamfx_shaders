@@ -1,0 +1,107 @@
+// Additive Blend Stacked Sources
+//
+// Implements and additive blend - could also add
+// many other fancy blending modes in future.
+// Expects its input to be two sources stacked on top of each other vertically
+// in a group - the bottom one should have a transform Y offset equal to the
+// base canvas size.
+//
+// by Millennium Cyborg
+// for use with OBS + StreamFX
+
+// Always provided by OBS
+uniform float4x4 ViewProj<
+	bool automatic = true;
+	string name = "View Projection Matrix";
+>;
+
+// Provided by Stream Effects
+uniform texture2d InputA<
+	bool automatic = true;
+>;
+
+uniform float4 ViewSize<
+	bool automatic = true;
+>;
+
+// User parameters
+uniform bool _00_IgnoreSourceAlpha<
+  bool automatic = false;
+	string name = "Ignore Source Alpha";
+	string description = "Ignore the alpha value in the source";
+> = true;
+
+uniform float _01_TopSourceMult<
+  bool automatic = false;
+	string name = "Top Source Multiplier";
+	string description = "Amount contribution from top source";
+	string field_type = "slider";
+	float minimum = -3;
+	float maximum = 3;
+	float step = 0.01;
+> = 1.0;
+
+uniform float _02_BottomSourceMult<
+  bool automatic = false;
+	string name = "Bottom Source Alpha";
+	string description = "Amount contribution from bottom source";
+	string field_type = "slider";
+	float minimum = -3;
+	float maximum = 3;
+	float step = 0.01;
+> = 1.0;
+
+// ---------- Shader Code
+sampler_state def_sampler {
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+	Filter    = Linear;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in) {
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+float2 uv_to_px(float2 uv) {
+  return (uv * ViewSize.xy) - 0.5;
+}
+
+float2 px_to_uv(float2 px) {
+  return (px + 0.5) / ViewSize.xy;
+}
+
+float4 PSDefault(VertData v_in) : TARGET {
+  // Current pixel
+  const float2 px_in = uv_to_px(v_in.uv.xy);
+
+  const float2 top_sample_px = px_in;
+  const float2 bottom_sample_px = px_in + float2(0, ViewSize.y / 2);
+
+	if (bottom_sample_px.y > ViewSize.y) { return float4(0,0,0,0); }
+
+	const float4 top_sample =
+	  InputA.Sample(def_sampler, px_to_uv(top_sample_px));
+  const float4 bottom_sample =
+	  InputA.Sample(def_sampler, px_to_uv(bottom_sample_px));
+
+  float4 blend = _01_TopSourceMult * top_sample + _02_BottomSourceMult * bottom_sample;
+	if (_00_IgnoreSourceAlpha) { blend.a = 1; }
+	return blend;
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSDefault(v_in); 
+	}
+}

@@ -1,0 +1,201 @@
+// Alpha Channel Reflection Mask
+// by Millennium Cyborg
+// for use with OBS + StreamFX
+
+// Always provided by OBS
+uniform float4x4 ViewProj<
+	bool automatic = true;
+	string name = "View Projection Matrix";
+>;
+
+// Provided by Stream Effects
+uniform texture2d InputA<
+	bool automatic = true;
+>;
+
+uniform float4 ViewSize<
+	bool automatic = true;
+>;
+
+// User values
+uniform float MaskSize<
+  bool automatic = false;
+	string name = "mask size";
+	string description = "Grow regions by this width";
+	string field_type = "slider";
+	float minimum = 1;
+	float maximum = 5;
+	float step = 1;
+> = 3;
+
+
+uniform float _Scale<
+  bool automatic = false;
+	string name = "Scale Factor";
+	string description = "Scale Factor";
+	string field_type = "slider";
+	float minimum = 0.01;
+	float maximum = 100;
+	float step = 0.01;
+> = 10;
+
+
+
+// ---------- Shader Code
+sampler_state def_sampler {
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+	Filter    = Linear;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in) {
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+float2 uv_to_px(float2 uv) {
+  return (uv * ViewSize.xy) - 0.5;
+}
+
+float2 px_to_uv(float2 px) {
+  return (px + 0.5) / ViewSize.xy;
+}
+
+float4 PSLogSumExp(VertData v_in) : TARGET {
+	const float2 px = uv_to_px(v_in.uv);
+  const int half_size = floor(MaskSize / 2);
+  const int full_size = (2 * half_size + 1);
+  const int N = full_size * full_size;
+  float3 c0 = float3(0,0,0); 
+  for (int i = -half_size; i <= half_size; ++i) {
+    for (int j = -half_size; j <= half_size; ++j) {
+      const float2 pixel = px + float2(i,j);
+      const float3 sample = InputA.Sample(def_sampler, px_to_uv(pixel)).rgb;
+      c0 += _Scale * exp(sample);
+    }
+  }
+  const float3 rgb = min(log(c0).rgb / _Scale, float3(1,1,1));
+  return float4(rgb, InputA.Sample(def_sampler, v_in.uv).a);
+}
+
+technique LogSumExp
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSLogSumExp(v_in); 
+	}
+}
+
+float4 PSPNorm(VertData v_in) : TARGET {
+	const float2 px = uv_to_px(v_in.uv);
+  const int half_size = floor(MaskSize / 2);
+  const int full_size = (2 * half_size + 1);
+  const int N = full_size * full_size;
+  float3 c0 = float3(0,0,0); 
+  for (int i = -half_size; i <= half_size; ++i) {
+    for (int j = -half_size; j <= half_size; ++j) {
+      const float2 pixel = px + float2(i,j);
+      const float3 sample = InputA.Sample(def_sampler, px_to_uv(pixel)).rgb;
+      c0 += pow(sample, _Scale);
+    }
+  }
+  const float3 rgb = min(pow(log(c0).rgb, 1/_Scale) / pow(N, 1/_Scale), float3(1,1,1));
+  return float4(rgb, InputA.Sample(def_sampler, v_in.uv).a);
+}
+
+technique PNorm
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSPNorm(v_in); 
+	}
+}
+
+// What do I actually want?
+// all values x in neighbourhood -> x
+
+// Don't want average, because...?
+// if > 1/2 samples are 1, don't want final sample to go below 1
+
+// can use kernel to weight central point more...or to have a diamond pattern...
+//for ...
+//weights += kernel;
+//sum += kernel * px;
+
+//final = min((sum / weights) + 0.5, 1);
+
+// #define KERNEL_SIZE 9
+#define KERNEL_SIZE 25
+
+float4 PSMadeUp(VertData v_in) : TARGET {
+  /*
+  const float Kernel[KERNEL_SIZE] =
+  { 1, 4, 1,
+    4, 9, 4,
+    1, 4, 1 };
+
+  const int KernelDX[KERNEL_SIZE] =
+  { -1, 0, 1,
+    -1, 0, 1,
+    -1, 0, 1 };
+
+  const int KernelDY[KERNEL_SIZE] =
+  { -1, -1, -1,
+     0,  0,  0,
+     1,  1,  1 };
+  */
+  const float Kernel[KERNEL_SIZE] =
+  { 1, 4, 7, 4, 1,
+    4, 16, 26, 16, 4,
+    7, 26, 41, 26, 7,
+    4, 16, 26, 16, 4,
+    1, 4, 7, 4, 1 };
+
+  const int KernelDX[KERNEL_SIZE] =
+  { -2, -1, 0, 1, 2,
+    -2, -1, 0, 1, 2,
+    -2, -1, 0, 1, 2,
+    -2, -1, 0, 1, 2,
+    -2, -1, 0, 1, 2, };
+
+  const int KernelDY[KERNEL_SIZE] =
+  { -2, -2, -2, -2, -2,
+    -1, -1, -1, -1, -1, 
+     0,  0,  0,  0,  0,
+     1, 1, 1, 1, 1,
+     2, 2, 2, 2, 2 };
+
+	const float2 px = uv_to_px(v_in.uv);
+  float weight = 0;
+  float3 c0 = float3(0,0,0);
+
+  const float in_a = InputA.Sample(def_sampler, v_in.uv).a;
+
+  for (int i = 0; i < KERNEL_SIZE; ++i) {
+    const float2 pixel = px + float2(KernelDX[i], KernelDY[i]);
+    const float3 sample = InputA.Sample(def_sampler, px_to_uv(pixel)).rgb;
+    weight += Kernel[i];
+    c0 += sample * Kernel[i];
+  }
+  const float3 rgb = min((c0 / weight) * _Scale, float3(1, 1, 1));
+  return float4(rgb, in_a);
+  ///**/ return float4(1, 0, 0, 1);
+}
+
+
+technique IMadeThisUp {
+  pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSMadeUp(v_in); 
+	}
+}

@@ -1,0 +1,67 @@
+// Alpha Channel Gamma shader
+// by Millennium Cyborg
+// for use with OBS + StreamFX
+
+// Always provided by OBS
+uniform float4x4 ViewProj<
+	bool automatic = true;
+	string name = "View Projection Matrix";
+>;
+
+// Provided by Stream Effects
+uniform texture2d InputA<
+	bool automatic = true;
+>;
+
+uniform float Gamma<
+  bool automatic = false;
+	string name = "Gamma";
+	string description = "Gamma value to apply to alpha channel. out = pow(in, gamma)";
+	string field_type = "slider";
+	float minimum = -100;
+	float maximum = 100;
+	float step = 0.1;
+> = 5.0;
+
+uniform float Offset<
+  bool automatic = false;
+	string name = "Offset";
+	string description = "Offset added after gamma applied";
+	string field_type = "slider";
+	float minimum = -100;
+	float maximum = 100;
+	float step = 0.1;
+> = 0.0;
+
+// ---------- Shader Code
+sampler_state def_sampler {
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+	Filter    = Linear;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in) {
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+float4 PSDefault(VertData v_in) : TARGET {
+	float4 col = InputA.Sample(def_sampler, v_in.uv);
+  return float4(col.rgb, pow(col.a, Gamma) + Offset);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSDefault(v_in); 
+	}
+}

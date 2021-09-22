@@ -1,0 +1,122 @@
+// Additive Blend Stacked Sources
+//
+// Implements and additive blend - could also add
+// many other fancy blending modes in future.
+// Expects its input to be two sources stacked on top of each other vertically
+// in a group - the bottom one should have a transform Y offset equal to the
+// base canvas size.
+//
+// by Millennium Cyborg
+// for use with OBS + StreamFX
+
+// Always provided by OBS
+uniform float4x4 ViewProj<
+	bool automatic = true;
+	string name = "View Projection Matrix";
+>;
+
+// Provided by Stream Effects
+uniform texture2d InputA<
+	bool automatic = true;
+>;
+
+uniform float4 ViewSize<
+	bool automatic = true;
+>;
+
+// User parameters
+uniform bool _00_SpecialSauce<
+  bool automatic = false;
+	string name = "Special Sauce";
+	string description = "Save a bunch of extra cleanup if using for reflection";
+> = true;
+
+uniform float _01_TopSourceMult<
+  bool automatic = false;
+	string name = "Upper Source Gain";
+	string description = "Amount contribution from upper source";
+	string field_type = "slider";
+	float minimum = -3;
+	float maximum = 3;
+	float step = 0.01;
+> = 1.0;
+
+uniform float _02_BottomSourceMult<
+  bool automatic = false;
+	string name = "Lower Source Gain";
+	string description = "Amount contribution from lower source";
+	string field_type = "slider";
+	float minimum = -3;
+	float maximum = 3;
+	float step = 0.01;
+> = 1.0;
+
+// ---------- Shader Code
+sampler_state def_sampler {
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+	Filter    = Linear;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in) {
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+float2 uv_to_px(float2 uv) {
+  return (uv * ViewSize.xy) - 0.5;
+}
+
+float2 px_to_uv(float2 px) {
+  return (px + 0.5) / ViewSize.xy;
+}
+
+float4 PSDefault(VertData v_in) : TARGET {
+	// Below the fold? Return early
+	if (v_in.uv.y > 0.5) { return float4(0,0,0,0); }
+	
+  // Current pixel
+  const float2 px_in = uv_to_px(v_in.uv.xy);
+
+  const float2 top_sample_px = px_in;
+  const float2 bottom_sample_px = px_in + float2(0, ViewSize.y / 2);
+
+	const float4 top_sample =
+	  InputA.Sample(def_sampler, px_to_uv(top_sample_px));
+  const float4 bottom_sample =
+	  InputA.Sample(def_sampler, px_to_uv(bottom_sample_px));
+
+  if (_00_SpecialSauce) {
+		// Extremely made up formula
+		//
+		// If you choose a small value for TopSourceMult and a large value for
+		// BottomSourceMult this still doesn't give great results and you'll want
+		// to set a threshold for the reflection mask that excludes glass over bg
+    const float3 blend_rgb =
+		  _01_TopSourceMult * top_sample.a * top_sample.rgb
+      + lerp(1.0, _02_BottomSourceMult, top_sample.a) * bottom_sample.rgb;
+    const float blend_a = top_sample.a > 0.0 ? 1.0 : bottom_sample.a;
+
+    return float4(blend_rgb, blend_a);
+  } else {
+		// Just additive blending
+    return _01_TopSourceMult * top_sample + _02_BottomSourceMult * bottom_sample;
+  }
+
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSDefault(v_in); 
+	}
+}

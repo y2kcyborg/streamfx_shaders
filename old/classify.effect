@@ -1,0 +1,126 @@
+// Alpha Channel Reflection Mask
+// by Millennium Cyborg
+// for use with OBS + StreamFX
+
+// Always provided by OBS
+uniform float4x4 ViewProj<
+	bool automatic = true;
+	string name = "View Projection Matrix";
+>;
+
+// Provided by Stream Effects
+uniform texture2d InputA<
+	bool automatic = true;
+>;
+
+uniform float4 ViewSize<
+	bool automatic = true;
+>;
+
+// User values
+uniform float _00_SolidRange<
+  bool automatic = false;
+	string name = "Solid Range";
+	string field_type = "slider";
+	float minimum = 0;
+	float maximum = 1;
+	float step = 0.01;
+> = 0.1;
+
+uniform float _01_GlassOverSolidMean<
+  bool automatic = false;
+	string name = "Glass Over Solid Mean";
+	string field_type = "slider";
+	float minimum = 0;
+	float maximum = 1;
+	float step = 0.01;
+> = 0.88;
+
+uniform float _02_GlassOverSolidRange<
+  bool automatic = false;
+	string name = "Glass Over Solid Range";
+	string field_type = "slider";
+	float minimum = 0;
+	float maximum = 1;
+	float step = 0.01;
+> = 0.12;
+
+// User values
+uniform float _03_GlassMean<
+  bool automatic = false;
+	string name = "Glass Mean";
+	string field_type = "slider";
+	float minimum = 0;
+	float maximum = 1;
+	float step = 0.01;
+> = 0.54;
+
+uniform float _04_GlassRange<
+  bool automatic = false;
+	string name = "Glass Range";
+	string field_type = "slider";
+	float minimum = 0;
+	float maximum = 1;
+	float step = 0.01;
+> = 0.12;
+
+// ---------- Shader Code
+sampler_state def_sampler {
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+	Filter    = Linear;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in) {
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+bool is_glass_over_solid(float a) {
+  return ((_01_GlassOverSolidLo <= a) && (a <= _02_GlassOverSolidHi));
+}
+
+bool is_glass(float a) {
+  return ((_03_GlassLo <= a) && (a <= _04_GlassHi));
+}
+
+float double_step(float mean, float range, float x) {
+  return (x < mean)
+    ? 1 - smoothstep(mean, mean - range, x)
+    : 1 - smoothstep(mean, mean + range, x);
+}
+
+float4 PSDefault(VertData v_in) : TARGET {
+  
+	const float sample = InputA.Sample(def_sampler, v_in.uv).a;
+
+  const float solid = double_step(1, _00_SolidRange, sample);
+  const float glass_over_solid = double_step(_01_GlassOverSolidMean, _02_GlassOverSolidRange, sample);
+  const float glass = double_step(_03_GlassMean, _04_GlassRange, sample);
+	// const float true_alpha = 1;
+	const float true_alpha = max(sample, glass_over_solid);
+
+	return float4(solid, glass, glass_over_solid, true_alpha);
+
+  // Just glass -> keep original alpha
+  // Glass over solid -> set alpha to 1
+  // Solid -> keep original alpha
+
+  // /**/ return float4(0.5, 0.4, 0.3, 1);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSDefault(v_in); 
+	}
+}

@@ -1,0 +1,77 @@
+// Alpha Channel Reflection Mask
+// by Millennium Cyborg
+// for use with OBS + StreamFX
+
+// Always provided by OBS
+uniform float4x4 ViewProj<
+	bool automatic = true;
+	string name = "View Projection Matrix";
+>;
+
+// Provided by Stream Effects
+uniform texture2d InputA<
+	bool automatic = true;
+>;
+
+uniform float4 ViewSize<
+	bool automatic = true;
+>;
+
+// User values
+uniform float _01_ThresholdLo<
+  bool automatic = false;
+	string name = "Lower Threshold";
+	string description = "Ignore pixels with alpha below this value";
+	string field_type = "slider";
+	float minimum = 0;
+	float maximum = 1;
+	float step = 0.01;
+> = 0.01;
+
+uniform float _02_ThresholdHi<
+  bool automatic = false;
+	string name = "Upper Threshold";
+	string description = "Ignore pixels with alpha above this value";
+	string field_type = "slider";
+	float minimum = 0;
+	float maximum = 1;
+	float step = 0.01;
+> = 0.99;
+
+// ---------- Shader Code
+sampler_state def_sampler {
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+	Filter    = Linear;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in) {
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+bool threshold(float a) {
+  return ((_01_ThresholdLo < a) && (a < _02_ThresholdHi));
+}
+
+float4 PSDefault(VertData v_in) : TARGET {
+	float sample = InputA.Sample(def_sampler, v_in.uv).a;
+  const float v = threshold(sample) ? 1 : 0;
+	return float4(v,v,v,1);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSDefault(v_in); 
+	}
+}
