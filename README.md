@@ -2,6 +2,12 @@
 
 ##  Putting Together the Reflection Effect
 
+- Your avatar needs to trigger the conditions for the bug I'm exploiting,
+  I recommend:
+  - VRM avatar in VSeeFace
+  - Glasses material using 'Standard' shader in 'Transparent' rendering mode
+    - Colour: black with alpha between 0.5 and 0.95
+
 - Scene 'Avatar Lighting'
   - 'Avatar' - avatar source
   - Source for other accessories that should receive lighting
