@@ -36,7 +36,7 @@ uniform float _01_SphereRadius<
 	float minimum = 16;
 	float maximum = 1920;
 	float step = 1;
-> = 480;
+> = 350;
 
 uniform float _02_SphereDepth<
   bool automatic = false;
@@ -46,7 +46,7 @@ uniform float _02_SphereDepth<
 	float minimum = 0;
 	float maximum = 1920;
 	float step = 1;
-> = 350;
+> = 500;
 
 uniform float2 _03_SphereOffset<
   bool automatic = false;
