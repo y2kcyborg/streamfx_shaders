@@ -1,0 +1,82 @@
+// Alpha Channel Reflection Mask
+// by Millennium Cyborg
+// for use with OBS + StreamFX
+
+// Always provided by OBS
+uniform float4x4 ViewProj<
+	bool automatic = true;
+	string name = "View Projection Matrix";
+>;
+
+// Provided by Stream Effects
+uniform texture2d InputA<
+	bool automatic = true;
+>;
+
+uniform float4 ViewSize<
+	bool automatic = true;
+>;
+
+// User values
+
+// ---------- Shader Code
+sampler_state def_sampler {
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+	Filter    = Point;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in) {
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+float2 uv_to_px(float2 uv) {
+  return (uv * ViewSize.xy) - 0.5;
+}
+
+float2 px_to_uv(float2 px) {
+  return (px + .5) / ViewSize.xy;
+}
+
+float4 PSDefault(VertData v_in) : TARGET {
+	// Just a big hack to show the URL on my overlay from chrome...
+
+  float2 px = uv_to_px(v_in.uv);
+	
+	// Scale and translate
+	px /= 3.;
+	px += float2(120., -283.5);
+  
+	float4 sample = InputA.Sample(def_sampler, px_to_uv(px));
+  float3 b_fact = float3(.21,.72,.07);
+  float b = dot(sample.rgb, b_fact);
+
+  // signature colours
+  float3 mil_col = float3(.153, .651, 1.);
+	float3 overlay_col = float3(.898, .961, 1.);
+
+  float3 url_bg = float3(.125, .129, .141);
+  
+  float t = (b - url_bg).r;
+  float3 v = t * mil_col + (1. - t) * overlay_col;
+  float a = 1.;
+	
+	return float4(v.rgb, a);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSDefault(v_in); 
+	}
+}

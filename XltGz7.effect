@@ -1,0 +1,154 @@
+// From Shadertoy - https://www.shadertoy.com/view/XltGz7
+
+// Always provided by OBS
+uniform float4x4 ViewProj<
+	bool automatic = true;
+	string name = "View Projection Matrix";
+>;
+
+// Provided by Stream Effects
+uniform float4 Time<
+	bool automatic = true;
+>;
+
+uniform float TransitionTime<
+	bool automatic = true;
+>;
+
+uniform float4 ViewSize<
+  bool automatic = true;
+>;
+
+uniform texture2d InputA<
+  bool automatic = true;
+>;
+
+uniform texture2d InputB<
+  bool automatic = true;
+>;
+
+// User values
+
+// ---------- Shader Code
+sampler_state def_sampler {
+	AddressU  = Wrap;
+	AddressV  = Wrap;
+	Filter    = Linear;
+};
+
+// Shader code
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in) {
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+#define RAY_COUNT 15
+#define M_PI 3.14159
+
+float rand(int n) { return frac(sin(float(n)) * 43758.5453123); }
+
+float4 godSparkleSimple( float2 uv )
+{
+  // I'm not sure what a lot of the calcs here are doing,
+  // I could simplify them I'm sure
+  
+  float4 glColor = float4(0.25, 0.5, 1, 0.75);
+  float4 foreground = float4(1., 1., 1., 1.);
+  float4 centerColor = float4(1., 1., 1., 1.);
+
+  float backgroundFade = 5.;
+  float lengthRandomness = 0.4;
+  float centerRadius = 0.05;
+
+  float4 color = float4(0., 0., 0., 0.);
+  
+  float len = sqrt( uv.x * uv.x + uv.y * uv.y );
+  float2 check = float2(0., 1.);
+    
+  float dotP = check.x*uv.x + check.y*uv.y;
+	float detP = check.x*uv.y - check.y*uv.x;
+    
+  float angle = 180. * atan2(detP, dotP) / M_PI;
+  angle += 180.;
+  
+  int randID = 0;
+  
+  for (int i = 0; i < RAY_COUNT; i++) {
+    float startAngle = 360. * rand(randID++);
+    float angleWidth = 360. / float( int( 3. + rand(randID++) * 5. )*2);
+    float speed = 400. * ( rand(randID++) - 0.5 );
+    
+    startAngle += speed * TransitionTime;
+    
+    float checkAngle = angle - startAngle;
+    
+    checkAngle = fmod(checkAngle, angleWidth*2.);
+    
+    float anglePercent = (checkAngle/angleWidth - 0.5)*2.;
+    
+    float dist = 0.6-lengthRandomness
+        + ( lengthRandomness * rand(randID++)    );
+    float distPercent = len/dist;
+    
+    float w = glColor.w
+      * ( 1.-( distPercent+0.1*rand(int(checkAngle))))
+      * ( 1.-clamp(pow(anglePercent, backgroundFade*2.), 0., 1.));
+    float centerW = clamp(10.*centerRadius-len*10., 0., 1.);
+    
+    float foreW = foreground.w
+        * clamp(1.-len*2., 0., 1.);
+    
+    float4 ourColor = lerp(glColor, foreground, clamp(foreW, 0., 1.));
+    ourColor = lerp(ourColor, centerColor, centerW);
+    
+    ourColor.w = max( centerW, w );
+    ourColor.w *= lerp(1., 0., TransitionTime);
+    // Additive blend that takes into account the alpha, 
+    // but I probably coded it wrong
+    color.rgb += ourColor.rgb * ourColor.w;
+    color.a += ourColor.w;
+  }
+  
+  return color;
+}
+
+float4 PSDefault(VertData v_in) : TARGET {
+  // actual source we're interested in
+  float4 sampleA = InputA.Sample(def_sampler, v_in.uv);
+  // fake transparent source
+  float4 sampleB = InputB.Sample(def_sampler, v_in.uv);
+
+  // Screw it, this works
+  float2 uv = v_in.uv - .5;
+  uv.x *= ViewSize.x/ViewSize.y;
+	uv.y = 1. - uv.y;
+  uv *= .5;
+  uv -= float2(0, .6);
+  // TODO move it up a bit...
+  
+  float4 overlay = godSparkleSimple(uv);
+  float4 result = float4(0.,0.,0.,0.);
+  // The wikipedia alpha compositing formula I'm not certain about
+  result.a = overlay.a + sampleA.a * (1 - overlay.a);
+  result.rgb = (overlay.rgb * overlay.a + sampleA.rgb * sampleA.a * (1 - overlay.a)) / result.a;
+  
+  return result;
+  /**/ return float4(0.,0.,1.,TransitionTime);
+}
+
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSDefault(v_in); 
+	}
+}

@@ -1,0 +1,161 @@
+// Alpha Channel Reflection Mask
+// by Millennium Cyborg
+// for use with OBS + StreamFX
+
+// Always provided by OBS
+uniform float4x4 ViewProj<
+	bool automatic = true;
+	string name = "View Projection Matrix";
+>;
+
+// Provided by Stream Effects
+uniform texture2d InputA<
+	bool automatic = true;
+>;
+
+uniform float4 ViewSize<
+	bool automatic = true;
+>;
+
+uniform float4 Time<
+	bool automatic = true;
+>;
+
+// User values
+
+// ---------- Shader Code
+sampler_state def_sampler {
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+	Filter    = Linear;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in) {
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+float2 uv_to_px(float2 uv) {
+  return (uv * ViewSize.xy) - 0.5;
+}
+
+float2 px_to_uv(float2 px) {
+  return (px + 0.5) / ViewSize.xy;
+}
+
+float3 hsl2rgb( float3 c )
+{
+    float3 rgb = clamp( abs(fmod(c.x*6.+float3(0.,4.,2.),6.)-3.)-1., 0., 1. );
+
+    return c.z + c.y * (rgb-.5)*(1.-abs(2.*c.z-1.));
+}
+
+
+float3 rgb2hsl( float3 c ){
+  float h = 0.;
+	float s = 0.;
+	float l = 0.;
+	float r = c.r;
+	float g = c.g;
+	float b = c.b;
+	float cMin = min( r, min( g, b ) );
+	float cMax = max( r, max( g, b ) );
+
+	l = ( cMax + cMin ) * .5;
+	if ( cMax > cMin ) {
+		float cDelta = cMax - cMin;
+        
+		s = l < .0 ? cDelta / ( cMax + cMin ) : cDelta / ( 2. - ( cMax + cMin ) );
+        
+		if ( r == cMax ) {
+			h = ( g - b ) / cDelta;
+		} else if ( g == cMax ) {
+			h = 2. + ( b - r ) / cDelta;
+		} else {
+			h = 4. + ( r - g ) / cDelta;
+		}
+
+		if ( h < 0.) {
+			h += 6.;
+		}
+		h = h / 6.;
+	}
+	return float3( h, s, l );
+}
+
+float4 PSDefault(VertData v_in) : TARGET {
+  const float2 px = uv_to_px(v_in.uv);
+	float4 sample = InputA.Sample(def_sampler, px_to_uv(px));
+
+	float2 p = -1. + 2. * px / ViewSize.xy; // range -1 to 1
+    
+  // Scroll and rotate
+  float t = 1. * Time.x;
+  // rotate
+  p = float2(cos(t) * p.x - sin(t) * p.y, sin(t) * p.x + cos(t) * p.y);
+  // scroll
+  p += 2. * float2(5., 2.) * Time.x;
+  
+  // shift origin, and wrap
+  p += 1.;
+  p = fmod(p, 2.); // now in range 0 to 2
+  
+  // make smoothly wrapping value across range
+  p = sin(3.14159 * p); // now in range -1 to +1
+  p.x *= .6;
+  p.y *= .5;
+
+  // main code, *original shader by: 'Plasma' by Viktor Korsun (2011)
+  float x = p.x;
+  float y = p.y;
+  float mov0 = x+y+cos(sin(Time.x)*2.)*100.+sin(x/100.)*1000.;
+  float mov1 = y / .9 + 10.;
+  float mov2 = x / .2;
+
+  float cb = 
+    sin(mov1+Time.x)*.5
+    - mov2*.5
+    - mov1;
+  float cg = 
+    sin(sin(mov1+Time.x)*.5
+        - mov2*.5
+        - mov1
+        + sin(mov0/1000.+Time.x)
+        + sin(y/40.+Time.x)
+        + sin((x+y)/100.)*3.);
+  float cr =
+    sin(
+      + sin(mov0/100.+Time.x)
+      + cos(mov1+mov2)
+      + cos(mov2)
+      + sin(x/1000.));
+  float3 c = abs(float3(cr,cg,cb));
+
+  // bias towards pastel - desaturate and lighten?
+  float3 c_hsv = rgb2hsl(c); // range: h ??? s -1.5 - 0 ?? l 0-2pi??
+
+  c_hsv += float3(0., -.15, -2.8);
+  c_hsv.y = clamp(c_hsv.y, -1.5, 0.);
+  c_hsv.z = clamp(c_hsv.z, 0., 6.); 
+  c = hsl2rgb(c_hsv);
+
+  sample.rgb = c.rgb;
+
+  return sample;
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSDefault(v_in); 
+	}
+}

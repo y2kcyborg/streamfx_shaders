@@ -1,0 +1,87 @@
+// Alpha Channel Reflection Mask
+// by Millennium Cyborg
+// for use with OBS + StreamFX
+
+// Always provided by OBS
+uniform float4x4 ViewProj<
+	bool automatic = true;
+	string name = "View Projection Matrix";
+>;
+
+// Provided by Stream Effects
+uniform texture2d InputA<
+	bool automatic = true;
+>;
+
+uniform float4 ViewSize<
+	bool automatic = true;
+>;
+
+// User values
+
+uniform float _01_ThresholdLo<
+  bool automatic = false;
+	string name = "Lower Threshold";
+	string description = "Ignore pixels with alpha below this value";
+	string field_type = "slider";
+	float minimum = 0;
+	float maximum = 1;
+	float step = 0.01;
+> = 0.01;
+
+uniform float _02_ThresholdHi<
+  bool automatic = false;
+	string name = "Upper Threshold";
+	string description = "Ignore pixels with alpha above this value";
+	string field_type = "slider";
+	float minimum = 0;
+	float maximum = 1;
+	float step = 0.01;
+> = 0.99;
+
+// ---------- Shader Code
+sampler_state def_sampler {
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+	Filter    = Linear;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in) {
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+float2 uv_to_px(float2 uv) {
+  return (uv * ViewSize.xy) - 0.5;
+}
+
+float2 px_to_uv(float2 px) {
+  return (px + 0.5) / ViewSize.xy;
+}
+
+float update(float acc, float sample) {
+	return min(acc, (_01_ThresholdLo < sample) * (sample < _02_ThresholdHi));
+}
+
+float4 PSDefault(VertData v_in) : TARGET {
+  const float2 px = uv_to_px(v_in.uv);
+  float c0 = 1;
+	c0 = update(c0, InputA.Sample(def_sampler, px_to_uv(px + float2( 0, 0))).a);
+  return float4(c0, c0 * .6666666, c0 * .33333333, 1.);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSDefault(v_in); 
+	}
+}

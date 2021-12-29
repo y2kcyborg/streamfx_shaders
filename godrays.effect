@@ -1,0 +1,160 @@
+// Godrays
+// by Millennium Cyborg
+// for use with OBS + StreamFX
+
+// Always provided by OBS
+uniform float4x4 ViewProj<
+	bool automatic = true;
+	string name = "View Projection Matrix";
+>;
+
+// Provided by Stream Effects
+uniform texture2d InputA<
+	bool automatic = true;
+>;
+
+uniform float4 ViewSize<
+	bool automatic = true;
+>;
+
+uniform float4 Time<
+	bool automatic = true;
+>;
+
+// User values
+/*
+uniform float _01_ThresholdLo<
+  bool automatic = false;
+	string name = "Lower Threshold";
+	string description = "Ignore pixels with brightness below this value (0.0-1.0)";
+	string field_type = "slider";
+	float minimum = 0.;
+	float maximum = 1.;
+	float step = .01;
+> = .99;
+*/
+
+#define M_PI 3.1415926538
+#define M_TAU 6.2831853076
+
+// ---------- Shader Code
+sampler_state def_sampler {
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+	Filter    = Linear;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in) {
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+float2 uv_to_px(float2 uv) {
+  return (uv * ViewSize.xy) - 0.5;
+}
+
+float2 px_to_uv(float2 px) {
+  return (px + 0.5) / ViewSize.xy;
+}
+
+float sampleAt(float2 px, float dx, float dy) {
+  float4 s = InputA.Sample(def_sampler, px_to_uv(px + float2(dx, dy)));
+  // Had the genius idea of getting a smoother blur by using rgb channels
+  // with different intensities...how to recombine?
+  float t = s.r + 1.5 * s.g + 3. * s.b;
+  return clamp(t, 0., 1.);
+}
+
+float sliceProfile(float width, float p) {
+  float half_width = .5 * width;
+  float dist_from_center = abs(.5 - p);
+  float x = 1. - dist_from_center / half_width;
+  return x > 0.5 ? 1.0 : 0.0;
+}
+
+float getSliceCol(
+  float2 px,
+  float gt,
+  float speed,
+  float width,
+  float num_slices
+) {
+  float s = sampleAt(px, 0., 0.);
+  gt += speed * Time.x;
+  gt = fmod(gt, M_TAU);
+  float t = gt / M_TAU;
+  t = fmod(t, 1./num_slices) * num_slices;
+  if (t < 0) { return float4(1., 0., 0., 1.); }
+  if (t > 1) { return float4(0., 0., 1., 1.); }
+  t = sliceProfile(width,t);
+  return lerp(0., .5, t);
+}
+
+// Normal map
+/*
+{
+  float3 n = float3(normalize(g.xy), 1.);
+  n = normalize(n);
+  return float4(.5+n.x,.5+n.y, n.z, 1.);
+}*/
+
+// float4 testit(float x) { return float4(0.,0.,0.,0.); }
+
+float4 lerp3(float4 c0, float4 c1, float4 c2, float mid, float t)
+{
+  return (t < mid) 
+    ? lerp(c0, c1, t / mid )
+    : lerp(c1, c2, (t - mid) / (1. - mid));
+}
+
+float4 PSDefault(VertData v_in) : TARGET {
+  
+  const float2 px = uv_to_px(v_in.uv);
+  // Idea: Input is a greyscale image - we ignore alpha and just look at red channel?
+  // The image is a black/white mask that has been heavily blurred.
+  // We need to scale up the white value by some large factor.
+  float s = sampleAt(px, 0., 0.);
+  
+  // convolve to get gradient
+
+  float2 g;
+  // gradient x
+  g.x = (
+      sampleAt(px, -1., -1.) + 2*sampleAt(px, -1., 0.) + sampleAt(px, -1., +1.)
+    - sampleAt(px, +1., -1.) - 2*sampleAt(px, +1., 0.) - sampleAt(px, +1., +1.)
+  ) / 8.;
+
+  // gradient y
+  g.y = (
+    sampleAt(px, -1., -1.) + 2*sampleAt(px, 0, -1.) + sampleAt(px, +1., -1.)
+    - sampleAt(px, -1., +1.) - 2*sampleAt(px, 0., +1.) - sampleAt(px, +1., +1.)
+  ) / 8.;
+
+  // gradient angle
+  float gt = atan2(g.y, g.x);
+  if (gt < 0) { gt += M_TAU; }
+  float ret = s;
+  if (length(g) > 0.01) {
+    ret = 0;
+    ret += getSliceCol(px, gt, 0.4245494, .3, 7.);
+    ret += getSliceCol(px, gt, 2.154254, .3, 5.);
+    ret += getSliceCol(px, gt, 9.784515, 1., 3.);
+  }
+  return ret;
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSDefault(v_in); 
+	}
+}

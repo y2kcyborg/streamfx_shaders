@@ -230,8 +230,14 @@ float4 PSDefault(VertData v_in) : TARGET {
   const float facing = abs(dot(ray_normal, N));
   const float4 tint = tint_from_facing(facing);
   
-  return float4(tint * sample);
-  ///**/ return float4(1,1,1,1);
+  const float4 tinted_sample = float4(tint * sample);
+
+  float4 result;
+  result.a = tinted_sample.a + c_env.a * (1 - tinted_sample.a);
+  result.rgb = (tinted_sample.rgb * tinted_sample.a + c_env.rgb * c_env.a * (1 - tinted_sample.a)) / result.a;
+
+  return result;
+  ///**/ return float4(1, 0,1,1);
 }
 
 technique Draw

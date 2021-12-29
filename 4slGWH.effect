@@ -1,0 +1,137 @@
+// From Shadertoy - https://www.shadertoy.com/view/4slGWH
+
+
+// Always provided by OBS
+uniform float4x4 ViewProj<
+	bool automatic = true;
+	string name = "View Projection Matrix";
+>;
+
+// Provided by Stream Effects
+uniform texture2d InputA<
+	bool automatic = true;
+>;
+
+uniform float4 Time<
+	bool automatic = true;
+>;
+
+uniform float4 ViewSize<
+  bool automatic = true;
+>;
+
+// User values
+uniform float3 _01_TexParams<
+  bool automatic = false;
+	string name = "Tex Params";
+	string description = "Some kind of params related to the texture mapping";
+	string field_type = "slider";
+	float3 minimum = {-1., -10., -1.};
+	float3 maximum = {1., 10., 1.};
+	float3 step = {0.01, 0.01, 0.01};
+> = {0.5, 0.5, 0.5};
+
+// ---------- Shader Code
+sampler_state def_sampler {
+	AddressU  = Wrap;
+	AddressV  = Wrap;
+	Filter    = Linear;
+};
+
+//
+// by iq
+// Created by inigo quilez - iq/2013
+// https://www.youtube.com/c/InigoQuilez
+// https://iquilezles.org
+
+// Instead of using a pont, circle, line or any mathematical shape for traping the orbit
+// of fc(z), one can use any arbitrary shape. For example, a NyanCat :)
+//
+// I invented this technique more than 10 years ago (can have a look to those experiments 
+// here http://www.iquilezles.org/www/articles/ftrapsbitmap/ftrapsbitmap.htm).
+//*
+float4 getTexColor( float3 s, float2 z )
+{
+	float2 p = s.xy + s.z*z;
+	p.x += 0.1 * sin(3.14159 * 2 * p.y + 0.745872 * Time.x);
+  return InputA.Sample( def_sampler, p );
+}
+
+float4 fractal( float2 fragCoord )
+{
+  float2 p = (2.0*fragCoord-ViewSize.xy)/ViewSize.y;
+  
+  float time = max( Time.x-5.5, 0.0 );
+  
+  // zoom	
+	p = float2(.5,-.05) + p*.75 * pow( .9, 20.*(.5+.5*cos(0.23125412*time)) );
+  // pan
+  p += float2(.8 * sin(0.04875624481 * time), .4 * cos(0.127512545 * time));
+	
+  // texture pan?
+	float3 s = _01_TexParams;
+	s.y = 0.1 * time;
+	s.x = lerp(.8, 1., 0.5 + 0.5 * sin(0.11111 * time));
+	s.x = lerp(.7, 1., 0.5 + 0.5 * sin(0.13333 * time));
+  // float3 s = float3(.5, .5, .5);
+  //float3 s = lerp( float3( .5, .5, .3),
+  //                 float3( .0, -.2, .5),
+  //                 0.5+0.5*sin(0.3*time) );
+  
+  // iterate Jc	
+	
+  float2 c = float2(-0.76, 0.15);
+	float f = 0.0;
+	float2 z = p;
+	
+  float4 col = float4(0., 0., 0., 0.);
+  for ( int i=0; i < 32; i++ )
+	{
+		if( (dot(z,z)>4.0) || (col.w>0.9) ) { break; }
+
+    // fc(z) = z² + c		
+		z = float2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y) + c;
+		
+		col = getTexColor( s, z );
+		f += 1.0;
+	}
+	
+	float3 bg = .5*float3(.15, .65, 1.) * sqrt(f/100.0);
+	
+  col.xyz = lerp( bg, col.xyz, col.w );
+  
+  // Don't have an audio texture to use
+  // col += texture( iChannel1, float2(0.01,0.2) ).x * (1.0-step( 5.5, Time.x ));
+
+	// return float4( col.xyz, 1. );
+  return col;
+}
+//*/
+
+// Shader code
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in) {
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+float4 PSDefault(VertData v_in) : TARGET {
+  float2 px = v_in.uv * ViewSize.xy;
+  return fractal(px);
+}
+
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSDefault(v_in); 
+	}
+}

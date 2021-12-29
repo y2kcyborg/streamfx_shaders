@@ -1,0 +1,148 @@
+// Godrays
+// by Millennium Cyborg
+// for use with OBS + StreamFX
+
+// Always provided by OBS
+uniform float4x4 ViewProj<
+	bool automatic = true;
+	string name = "View Projection Matrix";
+>;
+
+// Provided by Stream Effects
+uniform texture2d InputA<
+	bool automatic = true;
+>;
+
+uniform float4 ViewSize<
+	bool automatic = true;
+>;
+
+uniform float4 Time<
+	bool automatic = true;
+>;
+
+// User values
+/*
+uniform float _01_ThresholdLo<
+  bool automatic = false;
+	string name = "Lower Threshold";
+	string description = "Ignore pixels with brightness below this value (0.0-1.0)";
+	string field_type = "slider";
+	float minimum = 0.;
+	float maximum = 1.;
+	float step = .01;
+> = .99;
+*/
+
+#define M_PI 3.1415926538
+#define M_TAU 6.2831853076
+
+// ---------- Shader Code
+sampler_state def_sampler {
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+	Filter    = Linear;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in) {
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+float2 uv_to_px(float2 uv) {
+  return (uv * ViewSize.xy) - 0.5;
+}
+
+float2 px_to_uv(float2 px) {
+  return (px + 0.5) / ViewSize.xy;
+}
+
+float update(float acc, float sample) {
+	return min(acc, (_01_ThresholdLo < sample) * (sample < _02_ThresholdHi));
+}
+
+float sampleAt(float2 px, float dx, float dy) {
+  return clamp(5 * InputA.Sample(def_sampler, px_to_uv(px + float2(dx, dy))).a, 0., 1.);
+}
+
+float sliceProfile(float p) {
+  float half_width = .5;
+  float dist_from_center = abs(.5 - p);
+  return clamp(1. - dist_from_center / half_width, 0., 1.);
+}
+
+float4 PSDefault(VertData v_in) : TARGET {
+  const float2 px = uv_to_px(v_in.uv);
+  // Idea: Input is a greyscale image - we ignore alpha and just look at red channel?
+  // The image is a black/white mask that has been heavily blurred.
+  // We need to scale up the white value by some large factor.
+  float s = sampleAt(px, 0., 0.);
+  
+  // convolve to get gradient
+
+  float2 g;
+  // gradient x
+  g.x = (
+      sampleAt(px, -1., -1.) + 2*sampleAt(px, -1., 0.) + sampleAt(px, -1., +1.)
+    - sampleAt(px, +1., -1.) - 2*sampleAt(px, +1., 0.) - sampleAt(px, +1., +1.)
+  ) / 8.;
+
+  // gradient y
+  g.y = (
+    sampleAt(px, -1., -1.) + 2*sampleAt(px, 0, -1.) + sampleAt(px, +1., -1.)
+    - sampleAt(px, -1., +1.) - 2*sampleAt(px, 0., +1.) - sampleAt(px, +1., +1.)
+  ) / 8.;
+
+  // gradient angle
+  float gt = atan2(g.y, g.x);
+  if (gt < 0) { gt += M_TAU; }
+  gt += Time.x;
+  gt = fmod(gt, M_TAU);
+
+  // gt is range 0 to 2pi
+  float num_slices = 3.;
+
+  if (length(g) > 0.0001) {
+    
+    float t = gt / M_TAU;
+    t = fmod(t, 1./num_slices) * num_slices;
+    if (t < 0) { return float4(1., 0., 0., 1.); }
+    if (t > 1) { return float4(0., 0., 1., 1.); }
+    t = sliceProfile(t);
+    float4 c1 = float4(s, s, s, 1.);
+    float4 c2 = float4(0.,1.,0.,1.);
+    return lerp(c1, c2, t);
+  } else {
+    return float4(s, s, s, 1.);
+  }
+  
+/*
+  float c0 = 1;
+	c0 = update(c0, InputA.Sample(def_sampler, px_to_uv(px + float2(-1,-1))).a);
+	c0 = update(c0, InputA.Sample(def_sampler, px_to_uv(px + float2( 0,-1))).a);
+	c0 = update(c0, InputA.Sample(def_sampler, px_to_uv(px + float2( 1,-1))).a);
+	c0 = update(c0, InputA.Sample(def_sampler, px_to_uv(px + float2(-1, 0))).a);
+	c0 = update(c0, InputA.Sample(def_sampler, px_to_uv(px + float2( 0, 0))).a);
+	c0 = update(c0, InputA.Sample(def_sampler, px_to_uv(px + float2( 1, 0))).a);
+	c0 = update(c0, InputA.Sample(def_sampler, px_to_uv(px + float2(-1, 1))).a);
+	c0 = update(c0, InputA.Sample(def_sampler, px_to_uv(px + float2( 0, 1))).a);
+	c0 = update(c0, InputA.Sample(def_sampler, px_to_uv(px + float2( 1, 1))).a);
+  return float4(c0, c0, c0, c0);
+*/
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSDefault(v_in); 
+	}
+}
