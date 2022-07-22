@@ -94,14 +94,16 @@ float4 PSDefault(VertData v_in) : TARGET {
   const float2 px = uv_to_px(v_in.uv);
 	float4 sample = InputA.Sample(def_sampler, px_to_uv(px));
 
+  float time_scaled = Time.x * 0.2;
+
 	float2 p = -1. + 2. * px / ViewSize.xy; // range -1 to 1
     
   // Scroll and rotate
-  float t = 1. * Time.x;
+  float t = 1. * time_scaled;
   // rotate
   p = float2(cos(t) * p.x - sin(t) * p.y, sin(t) * p.x + cos(t) * p.y);
   // scroll
-  p += 2. * float2(5., 2.) * Time.x;
+  p += 2. * float2(5., 2.) * time_scaled;
   
   // shift origin, and wrap
   p += 1.;
@@ -115,24 +117,24 @@ float4 PSDefault(VertData v_in) : TARGET {
   // main code, *original shader by: 'Plasma' by Viktor Korsun (2011)
   float x = p.x;
   float y = p.y;
-  float mov0 = x+y+cos(sin(Time.x)*2.)*100.+sin(x/100.)*1000.;
+  float mov0 = x+y+cos(sin(time_scaled)*2.)*100.+sin(x/100.)*1000.;
   float mov1 = y / .9 + 10.;
   float mov2 = x / .2;
 
   float cb = 
-    sin(mov1+Time.x)*.5
+    sin(mov1+time_scaled)*.5
     - mov2*.5
     - mov1;
   float cg = 
-    sin(sin(mov1+Time.x)*.5
+    sin(sin(mov1+time_scaled)*.5
         - mov2*.5
         - mov1
-        + sin(mov0/1000.+Time.x)
-        + sin(y/40.+Time.x)
+        + sin(mov0/1000.+time_scaled)
+        + sin(y/40.+time_scaled)
         + sin((x+y)/100.)*3.);
   float cr =
     sin(
-      + sin(mov0/100.+Time.x)
+      + sin(mov0/100.+time_scaled)
       + cos(mov1+mov2)
       + cos(mov2)
       + sin(x/1000.));

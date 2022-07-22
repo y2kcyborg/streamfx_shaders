@@ -1,0 +1,62 @@
+// Avatar Alpha+Colour Correction
+// by Millennium Cyborg
+// for use with OBS + StreamFX
+
+// Always provided by OBS
+uniform float4x4 ViewProj<
+	bool automatic = true;
+	string name = "View Projection Matrix";
+>;
+
+// Provided by Stream Effects
+uniform texture2d InputA<
+	bool automatic = true;
+>;
+
+uniform float4 ViewSize<
+	bool automatic = true;
+>;
+
+// User values
+
+uniform texture2d _00_Glasses_Mask<
+  string name = "Glasses Mask";
+>;
+
+// ---------- Shader Code
+sampler_state def_sampler {
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+	Filter    = Linear;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in) {
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+float4 PSDefault(VertData v_in) : TARGET {
+  const float2 uv = v_in.uv;
+	const float4 src_sample = InputA.Sample(def_sampler, uv);
+  const float4 transparency = _00_Glasses_Mask.Sample(def_sampler, uv);
+  // return float4(src_sample.rgb / transparency.a, (transparency.a > 0.0) ? 1.0 : src_sample.a);
+  // return float4(src_sample.rgb, 1.0);
+  // return float4(src_sample.rgb / transparency.a, transparency.a);
+  return transparency;
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSDefault(v_in); 
+	}
+}

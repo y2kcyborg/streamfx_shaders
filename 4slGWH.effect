@@ -57,6 +57,13 @@ float4 getTexColor( float3 s, float2 z )
   return InputA.Sample( def_sampler, p );
 }
 
+float4 over(float4 a, float4 b) {
+	float4 o = float4(1,1,1,1);
+	o.a = a.a + b.a * (1 - a.a);
+	o.rgb = (a.rgb * a.a + b.rgb * b.a * (1 - a.a)) / o.a;
+	return o;
+}
+
 float4 fractal( float2 fragCoord )
 {
   float2 p = (2.0*fragCoord-ViewSize.xy)/ViewSize.y;
@@ -87,18 +94,23 @@ float4 fractal( float2 fragCoord )
   float4 col = float4(0., 0., 0., 0.);
   for ( int i=0; i < 32; i++ )
 	{
-		if( (dot(z,z)>4.0) || (col.w>0.9) ) { break; }
+		if( (dot(z,z)>4.0) || (col.w>0.99) ) { break; }
 
     // fc(z) = z² + c		
 		z = float2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y) + c;
 		
-		col = getTexColor( s, z );
+		float4 new_col = getTexColor( s, z );
+		// hack for effect
+		//new_col.rgb = lerp(float3(1,1,1), new_col.rgb, new_col.a);
+		col = over(new_col, col);
+		//col=float4(1,1,1,1);
+		
 		f += 1.0;
 	}
 	
-	float3 bg = .5*float3(.15, .65, 1.) * sqrt(f/100.0);
+	//float3 bg = .5*float3(.15, .65, 1.) * sqrt(f/100.0);
 	
-  col.xyz = lerp( bg, col.xyz, col.w );
+  // col.rgb = lerp( bg, col.rgb, col.a );
   
   // Don't have an audio texture to use
   // col += texture( iChannel1, float2(0.01,0.2) ).x * (1.0-step( 5.5, Time.x ));

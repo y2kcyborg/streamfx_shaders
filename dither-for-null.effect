@@ -1,0 +1,124 @@
+// Dither for Nullcasting
+// by Millennium Cyborg
+// for use with OBS + StreamFX
+// Based on https://www.shadertoy.com/view/tsKGDm
+
+// Always provided by OBS
+uniform float4x4 ViewProj<
+	bool automatic = true;
+	string name = "View Projection Matrix";
+>;
+
+// Provided by Stream Effects
+uniform texture2d InputA<
+	bool automatic = true;
+>;
+
+uniform float4 ViewSize<
+	bool automatic = true;
+>;
+
+// User values
+
+uniform float _01_PixelScale<
+  bool automatic = false;
+	string name = "Pixel Scale";
+	string description = "> 1 for nearest-neighbour downsampling";
+	string field_type = "slider";
+	float minimum = 1;
+	float maximum = 8;
+	float step = 0.1;
+> = 1;
+
+uniform float _02_ColorQuant<
+  bool automatic = false;
+	string name = "Color Values Per Channel";
+	string description = "Quantize color down to this many values per channel";
+	string field_type = "slider";
+	float minimum = 1;
+	float maximum = 256;
+	float step = 1;
+> = 16;
+
+uniform float _03_Dither_Strength<
+  bool automatic = false;
+	string name = "Dither Strength";
+	string description = "More dither!!";
+	string field_type = "slider";
+	float minimum = 0;
+	float maximum = 5.0;
+	float step = 0.1;
+> = 1.0;
+
+uniform float _04_DitherSuperScale<
+  bool automatic = false;
+	string name = "Dither Superscale";
+	string description = "uhhhh neat effect";
+	string field_type = "slider";
+	float minimum = 1;
+	float maximum = 8;
+	float step = 0.1;
+> = 1;
+
+// ---------- Shader Code
+sampler_state def_sampler {
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+	Filter    = Linear;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in) {
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+float2 uv_to_px(float2 uv) {
+  return uv * ViewSize.xy;
+}
+
+float2 px_to_uv(float2 px) {
+  return px / ViewSize.xy;
+}
+
+float4 PSDefault(VertData v_in) : TARGET {
+  float2 uv = v_in.uv;
+  float2 px = uv_to_px(uv);
+  
+  // Quantize position
+  px = floor( px / _01_PixelScale ) * _01_PixelScale;
+  uv = px_to_uv(px);
+  
+  // Get source color
+  float4 col = InputA.Sample(def_sampler, uv);
+  
+  // Dither
+  const float4x4 ditherTable = {
+    -4.0, 0.0, -3.0, 1.0,
+    2.0, -2.0, 3.0, -1.0,
+    -3.0, 1.0, -4.0, 0.0,
+    3.0, -1.0, 2.0, -2.0
+  };
+  int2 dither_idx = floor( px / (_01_PixelScale*_04_DitherSuperScale) );
+  col.rgb += ditherTable[int(dither_idx.x) % 4][int(dither_idx.y) % 4] * 0.005 * _03_Dither_Strength;
+  
+  // Quantize color
+  col.rgb = floor(col.rgb * _02_ColorQuant) / _02_ColorQuant;
+  
+  return col;
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSDefault(v_in); 
+	}
+}
