@@ -30,6 +30,16 @@ uniform float _01_PixelScale<
 	float step = 0.1;
 > = 1;
 
+uniform float _01b_PixelAspect<
+  bool automatic = false;
+	string name = "Pixel Aspect";
+	string description = "Non-square pixels if != 1";
+	string field_type = "slider";
+	float minimum = -3;
+	float maximum = 3;
+	float step = 1;
+> = 1;
+
 uniform float _02_ColorQuant<
   bool automatic = false;
 	string name = "Color Values Per Channel";
@@ -91,8 +101,16 @@ float4 PSDefault(VertData v_in) : TARGET {
   float2 uv = v_in.uv;
   float2 px = uv_to_px(uv);
   
+  // Pixel aspect
+	float pxAspect = _01b_PixelAspect;
+	if (pxAspect == 0) { pxAspect = 1; }
+	if (pxAspect < 0) { pxAspect = 1/pxAspect; }
+	float2 pxScale = _01_PixelScale * float2(pxAspect, 1);
+
   // Quantize position
-  px = floor( px / _01_PixelScale ) * _01_PixelScale;
+	
+	
+  px = floor( px / pxScale ) * pxScale;
   uv = px_to_uv(px);
   
   // Get source color
@@ -105,7 +123,7 @@ float4 PSDefault(VertData v_in) : TARGET {
     -3.0, 1.0, -4.0, 0.0,
     3.0, -1.0, 2.0, -2.0
   };
-  int2 dither_idx = floor( px / (_01_PixelScale*_04_DitherSuperScale) );
+  int2 dither_idx = floor( px / (pxScale*_04_DitherSuperScale) );
   col.rgb += ditherTable[int(dither_idx.x) % 4][int(dither_idx.y) % 4] * 0.005 * _03_Dither_Strength;
   
   // Quantize color
