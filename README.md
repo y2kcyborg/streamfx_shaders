@@ -1,5 +1,9 @@
 # Millennium Cyborg's StreamFX Shaders
 
+This repository is really out of date!
+I'm leaving it intact since I have some videos and tweets referencing it.
+Any newer shader work will go in a https://github.com/y2kcyborg/obs-shaders
+
 ##  Putting Together the Reflection Effect
 
 - Your avatar needs to trigger the conditions for the bug I'm exploiting,
